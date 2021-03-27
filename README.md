@@ -11,7 +11,7 @@ backspace characters following unicode characters. In these cases the output
 may line wrap at unexpected places and some trailing portions of control codes
 may get displayed.
 
-`more` is less than 150 lines of code and compiles to a 34KB static binary with `musl-gcc`.
+`more` is about 150 lines of code and compiles to a 30KB static binary with `musl-gcc`.
 
 # Usage
 

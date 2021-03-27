@@ -2,9 +2,13 @@
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <termios.h>
+#include <signal.h>
 
+static FILE* TTY = NULL;
+static struct termios* TERM = NULL;
 static int PROGRESS = 0, SIZE = 0;
 
 typedef enum {DEFAULT, ESCAPE, CODE, END} State;  // for ansi escape codes
@@ -41,8 +45,8 @@ static State transition(State state, int ch) {
     }
 }
 
-static int printline(int columns, FILE* stream) {
-    int column = 0, ch = fgetc(stream);
+static int printline(int columns, FILE* input) {
+    int column = 0, ch = fgetc(input);
     int state = transition(DEFAULT, ch);
 
     // avoid line splits in the middle of unicode and ansi escape sequences
@@ -51,7 +55,7 @@ static int printline(int columns, FILE* stream) {
         PROGRESS += 1;
         if (state == DEFAULT)
             column = movecursor(ch, column);
-        ch = fgetc(stream);
+        ch = fgetc(input);
         state = transition(state, ch);
     }
 
@@ -60,90 +64,103 @@ static int printline(int columns, FILE* stream) {
     if (ch == '\n')
         PROGRESS += 1;
     else
-        ungetc(ch, stream);
+        ungetc(ch, input);
     fputc('\n', stdout);
     return ch;
 }
 
 static void erase() {
-    if (SIZE > 0)
+    if (SIZE > 0 && PROGRESS > 0)
         fputs("\r          \r", stdout);
 }
 
-static int printlines(int rows, int columns, FILE* stream) {
+static int printlines(int rows, int columns, FILE* input) {
     int ch = 0;
     erase();
     for (int i = 0; i < rows && ch != EOF; i++)
-        ch = printline(columns, stream);
+        ch = printline(columns, input);
     if (SIZE > 0)
         fprintf(stdout, "--(%d%%)--", (100*PROGRESS)/SIZE);
     fflush(stdout);
     return ch;
 }
 
-static int cleanup(FILE* tty, FILE* stream) {
+static void quit(int signal) {
     erase();
-    fclose(tty);
-    fclose(stream);
-    return 0;
+    if (TTY != NULL && TERM != NULL)
+        tcsetattr(fileno(TTY), TCSANOW, TERM);
+    exit(signal == 0 ? 0 : 1);
 }
 
 int main(int argc, char* argv[]) {
-    FILE* stream = stdin;
     int rows = 24, columns = 80;
     int istty = isatty(fileno(stdout));
+    FILE* input = stdin;
 
-    if (argc > 2)
+    if ((argc < 2 && isatty(fileno(stdin))) || argc > 2)
         return fputs("usage: more [file]\n", stderr), 2;
 
     if (argc == 2) {
-        stream = fopen(argv[1], "r");
-        if (stream == NULL)
+        input = fopen(argv[1], "r");
+        if (input == NULL)
             return perror("cannot open file"), 1;
         struct stat stats;
-        if (istty && fstat(fileno(stream), &stats) == 0)
+        if (istty && fstat(fileno(input), &stats) == 0)
             SIZE = stats.st_size;
     }
 
-    FILE* tty = fopen(ctermid(NULL), "r");
-    if (tty == NULL)
+    TTY = fopen(ctermid(NULL), "r");
+    if (TTY == NULL)
         return perror("cannot open tty"), 1;
 
     struct winsize ws;
-    if (ioctl(fileno(tty), TIOCGWINSZ, &ws) != -1) {
+    if (ioctl(fileno(TTY), TIOCGWINSZ, &ws) != -1) {
         rows = ws.ws_row;
         columns = ws.ws_col;
     }
 
     if (!istty) {
-        while (printlines(rows - 1, columns, stream) != EOF);
-        return cleanup(tty, stream);
+        while (printlines(rows - 1, columns, input) != EOF);
+        quit(0);
     }
 
-    struct termios term;
-    if (tcgetattr(fileno(tty), &term) != 0)
-        return perror("tcgetattr"), 1;
-    term.c_lflag &= ~ICANON & ~ECHO; // disable keypress buffering and echo
-    if (tcsetattr(fileno(tty), TCSANOW, &term) != 0)
-        return perror("tcsetattr"), 1;
+    int ch = printlines(rows - 1, columns, input);
+    if (ch == EOF)
+        quit(0);
 
-    int ch = printlines(rows - 1, columns, stream);
+    // make sure we restore terminal settings before exiting
+    struct sigaction action = {.sa_handler = &quit};
+    sigaction(SIGINT, &action, NULL);  // Ctrl-C
+    sigaction(SIGQUIT, &action, NULL); // Ctrl-'\'
+    sigaction(SIGTSTP, &action, NULL); // Ctrl-Z
+    sigaction(SIGTERM, &action, NULL); // kill
+    sigaction(SIGHUP, &action, NULL);  // hangup
+
+    struct termios term;
+    if (tcgetattr(fileno(TTY), &term) != 0)
+        return perror("tcgetattr"), 1;
+    tcflag_t oldflags = term.c_lflag;
+    term.c_lflag &= ~ICANON & ~ECHO; // disable keypress buffering and echo
+    if (tcsetattr(fileno(TTY), TCSANOW, &term) != 0)
+        return perror("tcsetattr"), 1;
+    term.c_lflag = oldflags;
+    TERM = &term;
 
     while (ch != EOF) {
-        switch (fgetc(tty)) {
+        switch (fgetc(TTY)) {
             case '\n':
-                ch = printlines(1, columns, stream);
+                ch = printlines(1, columns, input);
                 break;
             case 'd':
-                ch = printlines(rows / 2, columns, stream);
+                ch = printlines(rows / 2, columns, input);
                 break;
             case ' ':
-                ch = printlines(rows - 1, columns, stream);
+                ch = printlines(rows - 1, columns, input);
                 break;
             case 'q':
-                return cleanup(tty, stream);
+                quit(0);
         }
     }
 
-    return cleanup(tty, stream);
+    quit(0);
 }
