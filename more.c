@@ -1,16 +1,20 @@
+#include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <unistd.h>
 #include <termios.h>
 
-typedef enum {DEFAULT, ESCAPE, CODE, END} State;
+static int PROGRESS = 0, SIZE = 0;
 
-static int move(int ch, int column) {
+typedef enum {DEFAULT, ESCAPE, CODE, END} State;  // for ansi escape codes
+
+static int movecursor(int ch, int column) {
     if (ch == '\r')
         return 0;
     if (ch == '\t')
         return column + (8 - column % 8);
-    if (ch == '\b')
+    if (ch == '\b')     // backspace (won't work properly for utf8)
         return column > 0 ? column - 1 : 0;
     if ((ch < 0x80 && !isprint(ch)) || (ch >= 0x80 && ch < 0xC0))
         return column;  // non-printing ascii or non-initial utf8 bytes
@@ -18,7 +22,7 @@ static int move(int ch, int column) {
 }
 
 static int visible(int ch) {
-    return move(ch, 0) != 0 || ch == '\n';
+    return movecursor(ch, 0) != 0 || ch == '\n';
 }
 
 static int end(int ch) {
@@ -37,46 +41,83 @@ static State transition(State state, int ch) {
     }
 }
 
-static int printline(int columns) {
-    int column = 0, ch = getchar();
+static int printline(int columns, FILE* stream) {
+    int column = 0, ch = fgetc(stream);
     int state = transition(DEFAULT, ch);
 
     // avoid line splits in the middle of unicode and ansi escape sequences
     while ((column < columns || !visible(ch) || state != DEFAULT) && !end(ch)) {
-        putchar(ch);
+        fputc(ch, stdout);
+        PROGRESS += 1;
         if (state == DEFAULT)
-            column = move(ch, column);
-        ch = getchar();
+            column = movecursor(ch, column);
+        ch = fgetc(stream);
         state = transition(state, ch);
     }
 
     if (ch == EOF)
         return ch;
-    if (ch != '\n')
-        ungetc(ch, stdin);
-    putchar('\n');
+    if (ch == '\n')
+        PROGRESS += 1;
+    else
+        ungetc(ch, stream);
+    fputc('\n', stdout);
+    return ch;
+}
+
+static void erase() {
+    if (SIZE > 0)
+        fputs("\r          \r", stdout);
+}
+
+static int printlines(int rows, int columns, FILE* stream) {
+    int ch = 0;
+    erase();
+    for (int i = 0; i < rows && ch != EOF; i++)
+        ch = printline(columns, stream);
+    if (SIZE > 0)
+        fprintf(stdout, "--(%d%%)--", (100*PROGRESS)/SIZE);
     fflush(stdout);
     return ch;
 }
 
-static int printlines(int lines, int columns) {
-    int c = 0;
-    for (int i = 0; i < lines && c != EOF; i++)
-        c = printline(columns);
-    return c;
+static int cleanup(FILE* tty, FILE* stream) {
+    erase();
+    fclose(tty);
+    fclose(stream);
+    return 0;
 }
 
-int main(void) {
-    int lines = 24, columns = 80;
+int main(int argc, char* argv[]) {
+    FILE* stream = stdin;
+    int rows = 24, columns = 80;
+    int istty = isatty(fileno(stdout));
 
-    FILE* tty = fopen("/dev/tty", "r");
+    if (argc > 2)
+        return fputs("usage: more [file]\n", stderr), 2;
+
+    if (argc == 2) {
+        stream = fopen(argv[1], "r");
+        if (stream == NULL)
+            return perror("cannot open file"), 1;
+        struct stat stats;
+        if (istty && fstat(fileno(stream), &stats) == 0)
+            SIZE = stats.st_size;
+    }
+
+    FILE* tty = fopen(ctermid(NULL), "r");
     if (tty == NULL)
-        return perror("failed to open /dev/tty"), 1;
+        return perror("cannot open tty"), 1;
 
     struct winsize ws;
     if (ioctl(fileno(tty), TIOCGWINSZ, &ws) != -1) {
-        lines = ws.ws_row;
+        rows = ws.ws_row;
         columns = ws.ws_col;
+    }
+
+    if (!istty) {
+        while (printlines(rows - 1, columns, stream) != EOF);
+        return cleanup(tty, stream);
     }
 
     struct termios term;
@@ -86,22 +127,20 @@ int main(void) {
     if (tcsetattr(fileno(tty), TCSANOW, &term) != 0)
         return perror("tcsetattr"), 1;
 
-    int c = printlines(lines - 1, columns);
+    int ch = printlines(rows - 1, columns, stream);
 
-    while (c != EOF) {
+    while (ch != EOF) {
         switch (fgetc(tty)) {
             case '\n':
-                c = printline(columns);
+                ch = printlines(1, columns, stream);
                 break;
             case ' ':
-                c = printlines(lines - 1, columns);
+                ch = printlines(rows - 1, columns, stream);
                 break;
             case 'q':
-                fclose(tty);
-                return 0;
+                return cleanup(tty, stream);
         }
     }
 
-    fclose(tty);
-    return 0;
+    return cleanup(tty, stream);
 }
