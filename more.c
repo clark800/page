@@ -134,6 +134,9 @@ int main(int argc, char* argv[]) {
             case '\n':
                 ch = printlines(1, columns, stream);
                 break;
+            case 'd':
+                ch = printlines(rows / 2, columns, stream);
+                break;
             case ' ':
                 ch = printlines(rows - 1, columns, stream);
                 break;
