@@ -34,8 +34,8 @@ static EscState transition(EscState state, int ch) {
     switch (state) {
         case ESCAPE:
             if (ch >= 0x20 && ch <= 0x2F)
-                return NF;
-            return ch == '[' ? CSI : FINAL; // Fp, Fe, Fs sequences
+                return NF;  // nF 3-byte code
+            return ch == '[' ? CSI : FINAL; // Fp, Fe, Fs 2-byte codes
         case NF:
             return FINAL;
         case CSI:
@@ -57,7 +57,7 @@ static int printline(int columns, FILE* input) {
     int column = 0, ch = fgetc(input);
     EscState state = transition(DEFAULT, ch);
 
-    // avoid line splits in the middle of unicode and ansi escape sequences
+    // avoid splitting unicode characters and ansi escape codes
     while ((column < columns || !visible(ch) || state != DEFAULT) && !end(ch)) {
         fputc(ch, stdout);
         PROGRESS += 1;
@@ -87,7 +87,7 @@ static int printlines(int rows, int columns, FILE* input) {
     erase();
     for (int i = 0; i < rows && ch != EOF; i++)
         ch = printline(columns, input);
-    if (SIZE > 0)
+    if (SIZE > 0 && PROGRESS > 0)
         fprintf(stdout, "--(%d%%)--", (100*PROGRESS)/SIZE);
     fflush(stdout);
     return ch;
@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
     FILE* input = stdin;
 
     if ((argc < 2 && isatty(fileno(stdin))) || argc > 2)
-        return fputs("usage: more [file]\n", stderr), 2;
+        return fprintf(stderr, "usage: %s [file]\n", argv[0]), 2;
 
     if (argc == 2) {
         input = fopen(argv[1], "r");
@@ -136,7 +136,7 @@ int main(int argc, char* argv[]) {
     if (ch == EOF)
         quit(0);
 
-    // make sure we restore terminal settings before exiting
+    // ensure that terminal settings are restored before exiting
     struct sigaction action = {.sa_handler = &quit};
     sigaction(SIGINT, &action, NULL);  // Ctrl-C
     sigaction(SIGQUIT, &action, NULL); // Ctrl-'\'
@@ -144,11 +144,12 @@ int main(int argc, char* argv[]) {
     sigaction(SIGTERM, &action, NULL); // kill
     sigaction(SIGHUP, &action, NULL);  // hangup
 
+    // disable keypress buffering and echo
     struct termios term;
     if (tcgetattr(fileno(TTY), &term) != 0)
         return perror("tcgetattr"), 1;
     tcflag_t oldflags = term.c_lflag;
-    term.c_lflag &= ~ICANON & ~ECHO; // disable keypress buffering and echo
+    term.c_lflag &= ~ICANON & ~ECHO;
     if (tcsetattr(fileno(TTY), TCSANOW, &term) != 0)
         return perror("tcsetattr"), 1;
     term.c_lflag = oldflags;
