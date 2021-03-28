@@ -11,43 +11,51 @@ static FILE* TTY = NULL;
 static struct termios* TERM = NULL;
 static int PROGRESS = 0, SIZE = 0;
 
-typedef enum {DEFAULT, ESCAPE, CODE, END} State;  // for ansi escape codes
+typedef enum {DEFAULT, ESCAPE, NF, CSI, FINAL} EscState; // for ansi esc codes
 
 static int movecursor(int ch, int column) {
     if (ch == '\r')
         return 0;
     if (ch == '\t')
         return column + (8 - column % 8);
-    if (ch == '\b')     // backspace (won't work properly for utf8)
+    if (ch == '\b')
         return column > 0 ? column - 1 : 0;
-    if ((ch < 0x80 && !isprint(ch)) || (ch >= 0x80 && ch < 0xC0))
+    if ((ch < 0x80 && !isprint(ch)) || (ch >= 0x80 && ch <= 0xBF))
         return column;  // non-printing ascii or non-initial utf8 bytes
     return column + 1;
 }
 
+// handle ANSI escape codes
+// http://www.inwap.com/pdp10/ansicode.txt
+// https://en.wikipedia.org/wiki/ANSI_escape_code
+static EscState transition(EscState state, int ch) {
+    if (ch < 0x20 || ch > 0x7F)
+        return ch == 0x1B ? ESCAPE : DEFAULT;
+    switch (state) {
+        case ESCAPE:
+            if (ch >= 0x20 && ch <= 0x2F)
+                return NF;
+            return ch == '[' ? CSI : FINAL; // Fp, Fe, Fs sequences
+        case NF:
+            return FINAL;
+        case CSI:
+            return ch >= 0x20 && ch <= 0x3F ? CSI : FINAL;
+        default:
+            return DEFAULT;
+    }
+}
+
 static int visible(int ch) {
-    return movecursor(ch, 0) != 0 || ch == '\n';
+    return movecursor(ch, 0) > 0;
 }
 
 static int end(int ch) {
     return ch == '\n' || ch == EOF;
 }
 
-static State transition(State state, int ch) {
-    const int ESC = 033;
-    switch (state) {
-        case ESCAPE:
-            return ch == '[' ? CODE : (ch == ESC ? ESCAPE : DEFAULT);
-        case CODE:
-            return isdigit(ch) || ch == ';' ? CODE : END;
-        default:
-            return ch == ESC ? ESCAPE : DEFAULT;
-    }
-}
-
 static int printline(int columns, FILE* input) {
     int column = 0, ch = fgetc(input);
-    int state = transition(DEFAULT, ch);
+    EscState state = transition(DEFAULT, ch);
 
     // avoid line splits in the middle of unicode and ansi escape sequences
     while ((column < columns || !visible(ch) || state != DEFAULT) && !end(ch)) {
