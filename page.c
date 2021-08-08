@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 1
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <stdio.h>
@@ -77,8 +78,8 @@ static int printline(int columns, FILE* input) {
     return ch;
 }
 
-static void erase() {
-    if (SIZE > 0 && PROGRESS > 0)
+static void erase(void) {
+    if (SIZE > 0)
         fputs("\r          \r", stdout);
 }
 
@@ -87,7 +88,7 @@ static int printlines(int rows, int columns, FILE* input) {
     erase();
     for (int i = 0; i < rows && ch != EOF; i++)
         ch = printline(columns, input);
-    if (SIZE > 0 && PROGRESS > 0)
+    if (SIZE > 0)
         fprintf(stdout, "--(%d%%)--", (100*PROGRESS)/SIZE);
     fflush(stdout);
     return ch;
@@ -163,6 +164,10 @@ int main(int argc, char* argv[]) {
             case 'd':
                 ch = printlines(rows / 2, columns, input);
                 break;
+            case 't':
+                if (fseek(input, 0, SEEK_SET) != 0)
+                    break;
+                PROGRESS = 0;  // fallthrough
             case ' ':
                 ch = printlines(rows - 1, columns, input);
                 break;

@@ -1,5 +1,9 @@
 #!/bin/sh
 
-"${CC:-cc}" \
-    -std=c99 -pedantic -D_POSIX_C_SOURCE -Wall -Wextra -Wshadow \
-    -O2 -fpie -s -static -o page page.c
+"${CC:-cc}" $CPPFLAGS \
+    ${CFLAGS--O2 -fno-asynchronous-unwind-tables} \
+    ${LDFLAGS--s -static -Wl,--gc-sections} \
+    -std=c99 -Wpedantic -Wall -Wextra -Wfatal-errors \
+    -Wmissing-prototypes -Wstrict-prototypes -Wredundant-decls -Wshadow \
+    -Wnull-dereference -Wcast-qual -Winit-self -Wwrite-strings \
+    -o page ./*.c

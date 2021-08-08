@@ -18,6 +18,7 @@
 * `ENTER` - scroll one line
 * `SPACE` - scroll one screen
 * `d` - scroll half a screen
+* `t` - scroll to top (only when paging a file)
 * `q` - quit
 
 
