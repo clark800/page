@@ -12,6 +12,7 @@ static FILE* TTY = NULL;
 static struct termios* TERM = NULL;
 static int PROGRESS = 0, SIZE = 0;
 
+typedef enum {OTHER, ESC, DOWN} EscSeq;
 typedef enum {DEFAULT, ESCAPE, NF, CSI, FINAL} EscState; // for ansi esc codes
 
 static int movecursor(int ch, int column) {
@@ -101,6 +102,34 @@ static void quit(int signal) {
     exit(signal == 0 ? 0 : 1);
 }
 
+// https://en.wikipedia.org/wiki/ANSI_escape_code#Terminal_input_sequences
+static EscSeq readescseq(FILE* tty) {
+    char ch = 0;
+    struct termios term;
+    if (tcgetattr(fileno(tty), &term) != 0)
+        return perror("tcgetattr"), OTHER;
+    cc_t vmin = term.c_cc[VMIN];
+    cc_t vtime = term.c_cc[VTIME];
+    // make reads stop blocking after 1/10 second
+    term.c_cc[VMIN] = 0;
+    term.c_cc[VTIME] = 1;
+    if (tcsetattr(fileno(tty), TCSANOW, &term) != 0)
+        return perror("tcsetattr"), OTHER;
+    size_t n = fread(&ch, 1, 1, tty), m = n;
+    if (n == 1 && ch == '[')
+        do n += (m = fread(&ch, 1, 1, tty));
+        while (m == 1 && isdigit(ch));
+    term.c_cc[VMIN] = vmin;
+    term.c_cc[VTIME] = vtime;
+    if (tcsetattr(fileno(tty), TCSANOW, &term) != 0)
+        return perror("tcsetattr"), OTHER;
+    if (n == 0 || (n == 1 && ch == 27))
+        return ESC;
+    if (n == 2 && ch == 'B')
+        return DOWN;
+    return OTHER;
+}
+
 int main(int argc, char* argv[]) {
     int rows = 24, columns = 80;
     int istty = isatty(fileno(stdout));
@@ -133,9 +162,7 @@ int main(int argc, char* argv[]) {
         quit(0);
     }
 
-    int ch = printlines(rows - 1, columns, input);
-    if (ch == EOF)
-        quit(0);
+    printlines(rows - 1, columns, input);
 
     // ensure that terminal settings are restored before exiting
     struct sigaction action = {.sa_handler = &quit};
@@ -156,25 +183,31 @@ int main(int argc, char* argv[]) {
     term.c_lflag = oldflags;
     TERM = &term;
 
-    while (ch != EOF) {
+    while (1) {
         switch (fgetc(TTY)) {
             case '\n':
-                ch = printlines(1, columns, input);
+                printlines(1, columns, input);
                 break;
             case 'd':
-                ch = printlines(rows / 2, columns, input);
+                printlines(rows / 2, columns, input);
                 break;
             case 't':
                 if (fseek(input, 0, SEEK_SET) != 0)
                     break;
                 PROGRESS = 0;  // fallthrough
             case ' ':
-                ch = printlines(rows - 1, columns, input);
+                printlines(rows - 1, columns, input);
                 break;
             case 'q':
                 quit(0);
+            case 27: // esc code, may be esc key, arrow, or other keypress
+                switch (readescseq(TTY)) {
+                    case ESC:
+                        quit(0);
+                    case DOWN:
+                        printlines(1, columns, input);
+                    default: break;
+                }
         }
     }
-
-    quit(0);
 }
