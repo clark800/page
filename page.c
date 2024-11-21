@@ -3,6 +3,7 @@
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <termios.h>
@@ -10,7 +11,7 @@
 
 static FILE* TTY = NULL;
 static struct termios* TERM = NULL;
-static int PROGRESS = 0, SIZE = 0;
+static uintmax_t PROGRESS = 0, SIZE = 0;
 
 typedef enum {OTHER, ESC, DOWN} EscSeq;
 typedef enum {DEFAULT, ESCAPE, NF, CSI, FINAL} EscState; // for ansi esc codes
@@ -90,7 +91,8 @@ static int printlines(int rows, int columns, FILE* input) {
     for (int i = 0; i < rows && ch != EOF; i++)
         ch = printline(columns, input);
     if (SIZE > 0)
-        fprintf(stdout, "--(%d%%)--", (100*PROGRESS)/SIZE);
+        fprintf(stdout, "--(%ju%%)--", PROGRESS >= UINTMAX_MAX/100 ?
+                PROGRESS/(SIZE/100) : (100*PROGRESS)/SIZE);
     fflush(stdout);
     return ch;
 }
