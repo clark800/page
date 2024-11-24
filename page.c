@@ -11,12 +11,12 @@
 
 static FILE* TTY = NULL;
 static struct termios* TERM = NULL;
-static uintmax_t PROGRESS = 0, SIZE = 0;
+static uintmax_t LINE = 0, PROGRESS = 0, SIZE = 0;
 
 typedef enum {OTHER, ESC, DOWN} EscSeq;
 typedef enum {DEFAULT, ESCAPE, NF, CSI, FINAL} EscState; // for ansi esc codes
 
-static int movecursor(int ch, int column) {
+static uintmax_t movecursor(int ch, uintmax_t column) {
     if (ch == '\r')
         return 0;
     if (ch == '\t')
@@ -56,8 +56,9 @@ static int end(int ch) {
     return ch == '\n' || ch == EOF;
 }
 
-static int printline(int columns, FILE* input) {
-    int column = 0, ch = fgetc(input);
+static int printline(uintmax_t columns, FILE* input) {
+    uintmax_t column = 0;
+    int ch = fgetc(input);
     EscState state = transition(DEFAULT, ch);
 
     // avoid splitting unicode characters and ansi escape codes
@@ -77,6 +78,7 @@ static int printline(int columns, FILE* input) {
     else
         ungetc(ch, input);
     fputc('\n', stdout);
+    LINE += 1;
     return ch;
 }
 
@@ -85,10 +87,10 @@ static void erase(void) {
         fputs("\r          \r", stdout);
 }
 
-static int printlines(int rows, int columns, FILE* input) {
+static int printlines(uintmax_t rows, uintmax_t columns, FILE* input) {
     int ch = 0;
     erase();
-    for (int i = 0; i < rows && ch != EOF; i++)
+    for (uintmax_t i = 0; i < rows && ch != EOF; i++)
         ch = printline(columns, input);
     if (SIZE > 0)
         fprintf(stdout, "--(%ju%%)--", PROGRESS >= UINTMAX_MAX/100 ?
@@ -185,20 +187,27 @@ int main(int argc, char* argv[]) {
     term.c_lflag = oldflags;
     TERM = &term;
 
+    uintmax_t N = 0;
     while (1) {
-        switch (fgetc(TTY)) {
+        int c = fgetc(TTY);
+        switch (c) {
             case '\n':
-                printlines(1, columns, input);
+                printlines(N ? N : 1, columns, input);
                 break;
             case 'd':
-                printlines(rows / 2, columns, input);
+                printlines((N ? N : 1) * (rows / 2), columns, input);
                 break;
-            case 't':
-                if (fseek(input, 0, SEEK_SET) != 0)
-                    break;
-                PROGRESS = 0;  // fallthrough
+            case 'g':
+                N = N ? N : 1;
+                if (N + rows - 2 < LINE) {
+                    if (fseek(input, 0, SEEK_SET) != 0)
+                        break;
+                    LINE = 0, PROGRESS = 0;
+                }
+                printlines(N + rows - 2 - LINE, columns, input);
+                break;
             case ' ':
-                printlines(rows - 1, columns, input);
+                printlines((N ? N : 1) * (rows - 1), columns, input);
                 break;
             case 'q':
                 quit(0);
@@ -207,9 +216,10 @@ int main(int argc, char* argv[]) {
                     case ESC:
                         quit(0);
                     case DOWN:
-                        printlines(1, columns, input);
+                        printlines(N ? N : 1, columns, input);
                     default: break;
                 }
         }
+        N = isdigit(c) ? 10 * N + (c - '0') : 0;
     }
 }
