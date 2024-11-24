@@ -206,6 +206,9 @@ int main(int argc, char* argv[]) {
                 }
                 printlines(N + rows - 2 - LINE, columns, input);
                 break;
+            case 'G':
+                printlines(UINTMAX_MAX, columns, input);
+                break;
             case ' ':
                 printlines((N ? N : 1) * (rows - 1), columns, input);
                 break;
