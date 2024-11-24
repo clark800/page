@@ -20,7 +20,7 @@
 * `d` - scroll half a screen
 * `g` - go to top of file (when paging a file)
 * `Ng` - go to line number N (can only go backwards if paging a file)
-* 'G' - go to the end
+* `G` - go to the end
 * `q`/`ESC` - quit
 
 Scrolling commands can be prefixed by a number N to make them repeat N times.
