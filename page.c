@@ -83,8 +83,7 @@ static int printline(uintmax_t columns, FILE* input) {
 }
 
 static void erase(void) {
-    if (SIZE > 0)
-        fputs("\r          \r", stdout);
+    fputs("\r          \r", stdout);
 }
 
 static int printlines(uintmax_t rows, uintmax_t columns, FILE* input) {
@@ -95,6 +94,8 @@ static int printlines(uintmax_t rows, uintmax_t columns, FILE* input) {
     if (SIZE > 0)
         fprintf(stdout, "--(%ju%%)--", PROGRESS >= UINTMAX_MAX/100 ?
                 PROGRESS/(SIZE/100) : (100*PROGRESS)/SIZE);
+    else
+        fprintf(stdout, ch == EOF ? "--(END)--" : "--(MORE)--");
     fflush(stdout);
     return ch;
 }
