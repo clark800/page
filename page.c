@@ -13,7 +13,7 @@ static FILE* TTY = NULL;
 static struct termios* TERM = NULL;
 static uintmax_t LINE = 0, PROGRESS = 0, SIZE = 0;
 
-typedef enum {OTHER, ESC, DOWN} EscSeq;
+typedef enum {OTHER, ESC, UP, DOWN} EscSeq;
 typedef enum {DEFAULT, ESCAPE, NF, CSI, FINAL} EscState; // for ansi esc codes
 
 static uintmax_t movecursor(int ch, uintmax_t column) {
@@ -130,9 +130,28 @@ static EscSeq readescseq(FILE* tty) {
         return perror("tcsetattr"), OTHER;
     if (n == 0 || (n == 1 && ch == 27))
         return ESC;
+    if (n == 2 && ch == 'A')
+        return UP;
     if (n == 2 && ch == 'B')
         return DOWN;
     return OTHER;
+}
+
+static int gotoline(uintmax_t line, uintmax_t rows, uintmax_t columns,
+        FILE* input) {
+    if (line + rows - 2 < LINE) {
+        if (fseek(input, 0, SEEK_SET) != 0)
+            return '\n';
+        LINE = 0, PROGRESS = 0;
+    }
+    return printlines(line + rows - 2 - LINE, columns, input);
+}
+
+static int scrollback(uintmax_t lines, uintmax_t rows, uintmax_t columns,
+        FILE* input) {
+    uintmax_t topline = LINE - (rows - 1) + 1;
+    uintmax_t line = topline <= lines ? 1 : topline - lines;
+    return gotoline(line, rows, columns, input);
 }
 
 int main(int argc, char* argv[]) {
@@ -192,26 +211,30 @@ int main(int argc, char* argv[]) {
     while (1) {
         int c = fgetc(TTY);
         switch (c) {
+            case 'j':
             case '\n':
                 printlines(N ? N : 1, columns, input);
+                break;
+            case 'k':
+                scrollback(N ? N : 1, rows, columns, input);
+                break;
+            case ' ':
+                printlines((N ? N : 1) * (rows - 1), columns, input);
+                break;
+            case 'b':
+                scrollback((N ? N : 1) * (rows - 1), rows, columns, input);
                 break;
             case 'd':
                 printlines((N ? N : 1) * (rows / 2), columns, input);
                 break;
+            case 'u':
+                scrollback((N ? N : 1) * (rows / 2), rows, columns, input);
+                break;
             case 'g':
-                N = N ? N : 1;
-                if (N + rows - 2 < LINE) {
-                    if (fseek(input, 0, SEEK_SET) != 0)
-                        break;
-                    LINE = 0, PROGRESS = 0;
-                }
-                printlines(N + rows - 2 - LINE, columns, input);
+                gotoline(N ? N : 1, rows, columns, input);
                 break;
             case 'G':
                 printlines(UINTMAX_MAX, columns, input);
-                break;
-            case ' ':
-                printlines((N ? N : 1) * (rows - 1), columns, input);
                 break;
             case 'q':
                 quit(0);
@@ -219,6 +242,9 @@ int main(int argc, char* argv[]) {
                 switch (readescseq(TTY)) {
                     case ESC:
                         quit(0);
+                    case UP:
+                        scrollback(N ? N : 1, rows, columns, input);
+                        break;
                     case DOWN:
                         printlines(N ? N : 1, columns, input);
                     default: break;

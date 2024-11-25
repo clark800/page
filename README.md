@@ -6,7 +6,7 @@
 * Handles all ANSI escape codes (e.g. colors) except codes that move the cursor.
 * Shows percentage progress when displaying a file.
 * Should be portable to most POSIX systems, though it is not strictly POSIX compliant since there wasn't a POSIX compliant way to get the terminal dimensions in C until 2024 which isn't supported everywhere yet.
-* `page` is about 200 lines of code and compiles to a 30KB static binary with `musl-gcc`.
+* `page` is about 220 lines of code.
 
 # Usage
 
@@ -15,11 +15,14 @@
 
 # Commands
 
-* `ENTER`/`DOWN` - scroll one line
-* `SPACE` - scroll one screen
-* `d` - scroll half a screen
+* `ENTER`/`DOWN`/'j' - scroll down one line
+* `SPACE` - scroll down one screen
+* `d` - scroll down half a screen
+* `UP`/`k` - sroll up one line (when paging a file)
+* `b` - scroll up one screen (when paging a file)
+* `u` - scroll up half a screen (when paging a file)
 * `g` - go to top of file (when paging a file)
-* `Ng` - go to line number N (can only go backwards if paging a file)
+* `Ng` - go to line number N (going backwards only supported when paging a file)
 * `G` - go to the end
 * `q`/`ESC` - quit
 
