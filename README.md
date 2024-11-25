@@ -15,7 +15,7 @@
 
 # Commands
 
-* `ENTER`/`DOWN`/'j' - scroll down one line
+* `ENTER`/`DOWN`/`j` - scroll down one line
 * `SPACE` - scroll down one screen
 * `d` - scroll down half a screen
 * `UP`/`k` - sroll up one line (when paging a file)
