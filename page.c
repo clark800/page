@@ -156,7 +156,6 @@ static int scrollback(uintmax_t lines, uintmax_t rows, uintmax_t columns,
 
 int main(int argc, char* argv[]) {
     int rows = 24, columns = 80;
-    int istty = isatty(fileno(stdout));
     FILE* input = stdin;
 
     if ((argc < 2 && isatty(fileno(stdin))) || argc > 2)
@@ -166,10 +165,11 @@ int main(int argc, char* argv[]) {
         input = fopen(argv[1], "r");
         if (input == NULL)
             return perror("cannot open file"), 1;
-        struct stat stats;
-        if (istty && fstat(fileno(input), &stats) == 0)
-            SIZE = stats.st_size;
     }
+
+    struct stat stats;
+    if (fstat(fileno(input), &stats) == 0)
+        SIZE = stats.st_size;
 
     TTY = fopen(ctermid(NULL), "r");
     if (TTY == NULL)
@@ -181,7 +181,7 @@ int main(int argc, char* argv[]) {
         columns = ws.ws_col;
     }
 
-    if (!istty) {
+    if (!isatty(fileno(stdout))) {
         while (printlines(rows - 1, columns, input) != EOF);
         quit(0);
     }

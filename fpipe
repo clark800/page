@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# "The shell standard does not specify whether a trap on [EXIT] 0 is
+#  executed when an untrapped signal is received."
+# https://stackoverflow.com/a/12961904/2647751
+trap 'rm -f "$tmp"; exit 0' HUP INT QUIT PIPE TERM ALRM USR1 USR2
+
+tmp="$(mktemp)"
+cp /dev/stdin "$tmp"
+"$@" < "$tmp"
+rm -f "$tmp"

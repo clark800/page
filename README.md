@@ -13,6 +13,12 @@
     <command> | page
     page <file>
 
+Backwards movement only works when paging a file, but you can convert a stream
+to a file with the `fpipe` utility which writes the whole stream to a temporary
+file. This should only be used when the stream is not too large.
+
+    <command> | fpipe page
+
 # Commands
 
 * `ENTER`/`DOWN`/`j` - scroll down one line
