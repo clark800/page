@@ -237,6 +237,7 @@ int main(int argc, char* argv[]) {
                 printlines(UINTMAX_MAX, columns, input);
                 break;
             case 'q':
+            case 4:  // Ctrl-D produces EOT in non-canonical mode
                 quit(0);
             case 27: // esc code, may be esc key, arrow, or other keypress
                 switch (readescseq(TTY)) {
