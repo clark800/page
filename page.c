@@ -28,7 +28,9 @@ static uintmax_t movecursor(int ch, uintmax_t column) {
     return column + 1;
 }
 
-// handle ANSI escape codes
+// handle ANSI escape codes - we need this to track when to wrap lines, which
+// is necessary to make sure that we don't print too much and cause scroll off
+// on the first page
 // http://www.inwap.com/pdp10/ansicode.txt
 // https://en.wikipedia.org/wiki/ANSI_escape_code
 static EscState transition(EscState state, int ch) {
@@ -56,9 +58,11 @@ static int end(int ch) {
     return ch == '\n' || ch == EOF;
 }
 
-static int printline(uintmax_t columns, FILE* input) {
+static int printrow(uintmax_t columns, FILE* input) {
     uintmax_t column = 0;
     int ch = fgetc(input);
+    if (ch == EOF)
+        return EOF;
     EscState state = transition(DEFAULT, ch);
 
     // avoid splitting unicode characters and ansi escape codes
@@ -71,33 +75,71 @@ static int printline(uintmax_t columns, FILE* input) {
         state = transition(state, ch);
     }
 
-    if (ch == EOF)
-        return ch;
-    if (ch == '\n')
-        PROGRESS += 1;
-    else
+    if (ch == '\n' || ch == EOF) {
+        PROGRESS += (ch == '\n');
+        LINE += 1;
+    } else
         ungetc(ch, input);
     fputc('\n', stdout);
-    LINE += 1;
-    return ch;
+    return '\n';
 }
 
 static void erase(void) {
     fputs("\r          \r", stdout);
 }
 
-static int printlines(uintmax_t rows, uintmax_t columns, FILE* input) {
-    int ch = 0;
-    erase();
-    for (uintmax_t i = 0; i < rows && ch != EOF; i++)
-        ch = printline(columns, input);
+static void printstatus(int ch) {
     if (SIZE > 0)
-        fprintf(stdout, "--(%ju%%)--", PROGRESS >= UINTMAX_MAX/100 ?
+        printf("--(%ju%%)--", PROGRESS >= UINTMAX_MAX/100 ?
                 PROGRESS/(SIZE/100) : (100*PROGRESS)/SIZE);
     else
-        fprintf(stdout, ch == EOF ? "--(END)--" : "--(MORE)--");
+        printf(ch == EOF ? "--(END)--" : "--(MORE)--");
     fflush(stdout);
+}
+
+static int printrows(uintmax_t rows, uintmax_t cols, FILE* input, int fill) {
+    int ch = 0;
+    erase();
+    uintmax_t i = 0;
+    for (; i < rows; i++)
+        if ((ch = printrow(cols, input)) == EOF)
+            break;
+    for (; fill && i < rows; i++)
+        fputs("~\n", stdout);
+    printstatus(ch);
     return ch;
+}
+
+static int skiplines(uintmax_t lines, FILE* input) {
+    int ch = 0;
+    for (uintmax_t i = 0; i < lines && ch != EOF; i++) {
+        do {
+            ch = fgetc(input);
+            PROGRESS += (ch != EOF);
+        } while (ch != '\n' && ch != EOF);
+        LINE += (ch == '\n');
+    }
+    return ch;
+}
+
+static int gotoline(uintmax_t line, uintmax_t rows, uintmax_t columns,
+        FILE* input) {
+    // we can't reliably go to a line that is already displayed without
+    // re-reading because it may be a very long line that has scrolled off
+    if (line <= LINE) {
+        if (fseek(input, 0, SEEK_SET) != 0)
+            return '\n';
+        LINE = 0, PROGRESS = 0;
+    }
+    skiplines(line - LINE - 1, input);
+    return printrows(rows - 1, columns, input, 1);
+}
+
+static int scrollback(uintmax_t lines, uintmax_t rows, uintmax_t columns,
+        FILE* input) {
+    uintmax_t topline = LINE - (rows - 1) + 1;
+    uintmax_t line = topline <= lines ? 1 : topline - lines;
+    return gotoline(line, rows, columns, input);
 }
 
 static void quit(int signal) {
@@ -137,23 +179,6 @@ static EscSeq readescseq(FILE* tty) {
     return OTHER;
 }
 
-static int gotoline(uintmax_t line, uintmax_t rows, uintmax_t columns,
-        FILE* input) {
-    if (line + rows - 2 < LINE) {
-        if (fseek(input, 0, SEEK_SET) != 0)
-            return '\n';
-        LINE = 0, PROGRESS = 0;
-    }
-    return printlines(line + rows - 2 - LINE, columns, input);
-}
-
-static int scrollback(uintmax_t lines, uintmax_t rows, uintmax_t columns,
-        FILE* input) {
-    uintmax_t topline = LINE - (rows - 1) + 1;
-    uintmax_t line = topline <= lines ? 1 : topline - lines;
-    return gotoline(line, rows, columns, input);
-}
-
 int main(int argc, char* argv[]) {
     int rows = 24, columns = 80;
     FILE* input = stdin;
@@ -187,7 +212,7 @@ int main(int argc, char* argv[]) {
         columns = ws.ws_col;
     }
 
-    printlines(rows - 1, columns, input);
+    printrows(rows - 1, columns, input, 0);
 
     // ensure that terminal settings are restored before exiting
     struct sigaction action = {.sa_handler = &quit};
@@ -214,19 +239,19 @@ int main(int argc, char* argv[]) {
         switch (c) {
             case 'j':
             case '\n':
-                printlines(N ? N : 1, columns, input);
+                printrows(N ? N : 1, columns, input, 0);
                 break;
             case 'k':
                 scrollback(N ? N : 1, rows, columns, input);
                 break;
             case ' ':
-                printlines((N ? N : 1) * (rows - 1), columns, input);
+                printrows((N ? N : 1) * (rows - 1), columns, input, 0);
                 break;
             case 'b':
                 scrollback((N ? N : 1) * (rows - 1), rows, columns, input);
                 break;
             case 'd':
-                printlines((N ? N : 1) * (rows / 2), columns, input);
+                printrows((N ? N : 1) * (rows / 2), columns, input, 0);
                 break;
             case 'u':
                 scrollback((N ? N : 1) * (rows / 2), rows, columns, input);
@@ -235,7 +260,7 @@ int main(int argc, char* argv[]) {
                 gotoline(N ? N : 1, rows, columns, input);
                 break;
             case 'G':
-                printlines(UINTMAX_MAX, columns, input);
+                printrows(UINTMAX_MAX, columns, input, 0);
                 break;
             case 'q':
             case 4:  // Ctrl-D produces EOT in non-canonical mode
@@ -248,7 +273,7 @@ int main(int argc, char* argv[]) {
                         scrollback(N ? N : 1, rows, columns, input);
                         break;
                     case DOWN:
-                        printlines(N ? N : 1, columns, input);
+                        printrows(N ? N : 1, columns, input, 0);
                     default: break;
                 }
         }

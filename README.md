@@ -6,7 +6,7 @@
 * Handles all ANSI escape codes (e.g. colors) except codes that move the cursor.
 * Shows percentage progress when displaying a file.
 * Should be portable to most POSIX systems, though it is not strictly POSIX compliant since there wasn't a POSIX compliant way to get the terminal dimensions in C until 2024 which isn't supported everywhere yet.
-* `page` is about 220 lines of code.
+* `page` is about 240 lines of code.
 
 # Usage
 
