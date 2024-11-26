@@ -167,6 +167,12 @@ int main(int argc, char* argv[]) {
             return perror("cannot open file"), 1;
     }
 
+    // just stream input to output if output is piped
+    if (!isatty(fileno(stdout))) {
+        for (int c; (c = fgetc(input)) != EOF; fputc(c, stdout));
+        exit(0);
+    }
+
     struct stat stats;
     if (fstat(fileno(input), &stats) == 0)
         SIZE = stats.st_size;
@@ -179,11 +185,6 @@ int main(int argc, char* argv[]) {
     if (ioctl(fileno(TTY), TIOCGWINSZ, &ws) != -1) {
         rows = ws.ws_row;
         columns = ws.ws_col;
-    }
-
-    if (!isatty(fileno(stdout))) {
-        while (printlines(rows - 1, columns, input) != EOF);
-        quit(0);
     }
 
     printlines(rows - 1, columns, input);
