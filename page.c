@@ -85,23 +85,26 @@ static int printrow(uintmax_t columns, FILE* input) {
 }
 
 static void erase(void) {
-    fputs("\r          \r", stdout);
+    if (TERM)
+        fputs("\r          \r", stdout);
 }
 
 static void printstatus(int ch) {
-    if (SIZE > 0)
-        printf("--(%ju%%)--", PROGRESS >= UINTMAX_MAX/100 ?
-                PROGRESS/(SIZE/100) : (100*PROGRESS)/SIZE);
-    else
-        printf(ch == EOF ? "--(END)--" : "--(MORE)--");
+    if (TERM) {
+        if (SIZE > 0)
+            printf("--(%ju%%)--", PROGRESS >= UINTMAX_MAX/100 ?
+                    PROGRESS/(SIZE/100) : (100*PROGRESS)/SIZE);
+        else
+            printf(ch == EOF ? "--(END)--" : "--(MORE)--");
+    }
     fflush(stdout);
 }
 
 static int printrows(uintmax_t rows, uintmax_t cols, FILE* input, int fill) {
     int ch = 0;
-    erase();
     uintmax_t i = 0;
-    for (; i < rows; i++)
+    erase();
+    for (; i < rows || rows == UINTMAX_MAX; i++)
         if ((ch = printrow(cols, input)) == EOF)
             break;
     for (; fill && i < rows; i++)
@@ -192,12 +195,6 @@ int main(int argc, char* argv[]) {
             return perror("cannot open file"), 1;
     }
 
-    // just stream input to output if output is piped
-    if (!isatty(fileno(stdout))) {
-        for (int c; (c = fgetc(input)) != EOF; fputc(c, stdout));
-        exit(0);
-    }
-
     struct stat stats;
     if (fstat(fileno(input), &stats) == 0)
         SIZE = stats.st_size;
@@ -212,11 +209,12 @@ int main(int argc, char* argv[]) {
         columns = ws.ws_col;
     }
 
-    printrows(rows - 1, columns, input, 0);
+    // print one screen or dump all input if output is piped
+    printrows(isatty(fileno(stdout)) ? rows-1 : UINTMAX_MAX, columns, input, 0);
 
-    // exit if the whole input file/stream fits on one screen
+    // exit if the whole input file/stream fits on one screen or was dumped
     if (ungetc(fgetc(input), input) == EOF)
-        quit(0);
+        exit(0);
 
     // ensure that terminal settings are restored before exiting
     struct sigaction action = {.sa_handler = &quit};
@@ -236,6 +234,8 @@ int main(int argc, char* argv[]) {
         return perror("tcsetattr"), 1;
     term.c_lflag = oldflags;
     TERM = &term;
+
+    printstatus('\n');  // status is only printed after TERM is set
 
     uintmax_t N = 0;
     while (1) {
