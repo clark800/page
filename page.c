@@ -214,6 +214,10 @@ int main(int argc, char* argv[]) {
 
     printrows(rows - 1, columns, input, 0);
 
+    // exit if the whole input file/stream fits on one screen
+    if (ungetc(fgetc(input), input) == EOF)
+        quit(0);
+
     // ensure that terminal settings are restored before exiting
     struct sigaction action = {.sa_handler = &quit};
     sigaction(SIGINT, &action, NULL);  // Ctrl-C
