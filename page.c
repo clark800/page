@@ -255,10 +255,10 @@ int main(int argc, char* argv[]) {
                 scrollback((N ? N : 1) * (rows - 1), rows, columns, input);
                 break;
             case 'd':
-                printrows((N ? N : 1) * (rows / 2), columns, input, 0);
+                printrows((N ? N : 1) * ((rows-1) / 2), columns, input, 0);
                 break;
             case 'u':
-                scrollback((N ? N : 1) * (rows / 2), rows, columns, input);
+                scrollback((N ? N : 1) * ((rows-1) / 2), rows, columns, input);
                 break;
             case 'g':
                 gotoline(N ? N : 1, rows, columns, input);
