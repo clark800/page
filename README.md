@@ -30,10 +30,13 @@ file. This should only be used when the stream is not too large.
 * `g` - go to top of file (when paging a file)
 * `Ng` - go to line number N (going backwards only supported when paging a file)
 * `G` - go to the end
-* `Np` - go to percent (when paging a file; can't scroll backwards after jump)
+* `Np` - go to next line after N% of file size (when paging a file)
 * `q`/`ESC` - quit
 
 Scrolling commands can be prefixed by a number N to make them repeat N times.
+
+Scrolling backwards won't work after a byte-based jump like the `p` command
+until a line-based jump command like `g` is executed.
 
 # Building
 
