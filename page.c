@@ -11,7 +11,8 @@
 
 static FILE* TTY = NULL;
 static struct termios* TERM = NULL;
-static uintmax_t LINE = 0, PROGRESS = 0, SIZE = 0;
+// OFFSET is the byte offset where LINE counting starts
+static uintmax_t OFFSET = 0, LINE = 0, PROGRESS = 0, SIZE = 0;
 
 typedef enum {OTHER, ESC, UP, DOWN} EscSeq;
 typedef enum {DEFAULT, ESCAPE, NF, CSI, FINAL} EscState; // for ansi esc codes
@@ -125,24 +126,38 @@ static int skiplines(uintmax_t lines, FILE* input) {
     return ch;
 }
 
-static int gotoline(uintmax_t line, uintmax_t rows, uintmax_t columns,
+static void gotoline(uintmax_t line, uintmax_t rows, uintmax_t columns,
         FILE* input) {
     // we can't reliably go to a line that is already displayed without
     // re-reading because it may be a very long line that has scrolled off
-    if (line <= LINE) {
+    if (OFFSET != 0 || line <= LINE) {
         if (fseek(input, 0, SEEK_SET) != 0)
-            return '\n';
-        LINE = 0, PROGRESS = 0;
+            return;
+        OFFSET = 0, LINE = 0, PROGRESS = 0;
     }
     skiplines(line - LINE - 1, input);
-    return printrows(rows - 1, columns, input, 1);
+    printrows(rows - 1, columns, input, 1);
 }
 
-static int scrollback(uintmax_t lines, uintmax_t rows, uintmax_t columns,
+static void scrollback(uintmax_t lines, uintmax_t rows, uintmax_t columns,
         FILE* input) {
-    uintmax_t topline = LINE - (rows - 1) + 1;
+    if (OFFSET != 0)
+        return;   // after an offset jump we don't know what line we're on
+    uintmax_t topline = LINE < rows - 1 ? 1 : LINE - (rows - 1) + 1;
     uintmax_t line = topline <= lines ? 1 : topline - lines;
-    return gotoline(line, rows, columns, input);
+    gotoline(line, rows, columns, input);
+}
+
+static void gotopercent(uintmax_t percent, uintmax_t rows, uintmax_t columns,
+        FILE* input) {
+    if (SIZE == 0)
+        return;
+    uintmax_t offset = percent * (SIZE/100) + (percent * (SIZE % 100))/100;
+    if (fseek(input, offset, SEEK_SET) != 0)
+        return;
+    LINE = 0, OFFSET = offset, PROGRESS = offset;
+    skiplines(percent > 0 ? 1 : 0, input);  // skip past possibly partial line
+    printrows(rows - 1, columns, input, 1);
 }
 
 static void quit(int signal) {
@@ -265,6 +280,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'G':
                 printrows(UINTMAX_MAX, columns, input, 0);
+                break;
+            case 'p':
+                gotopercent(N > 100 ? 100 : N, rows, columns, input);
                 break;
             case 'q':
             case 4:  // Ctrl-D produces EOT in non-canonical mode

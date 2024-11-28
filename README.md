@@ -6,7 +6,7 @@
 * Handles all ANSI escape codes (e.g. colors) except codes that move the cursor.
 * Shows percentage progress when displaying a file.
 * Should be portable to most POSIX systems, though it is not strictly POSIX compliant since there wasn't a POSIX compliant way to get the terminal dimensions in C until 2024 which isn't supported everywhere yet.
-* `page` is about 240 lines of code.
+* `page` is about 260 lines of code.
 
 # Usage
 
@@ -30,6 +30,7 @@ file. This should only be used when the stream is not too large.
 * `g` - go to top of file (when paging a file)
 * `Ng` - go to line number N (going backwards only supported when paging a file)
 * `G` - go to the end
+* `Np` - go to percent (when paging a file; can't scroll backwards after jump)
 * `q`/`ESC` - quit
 
 Scrolling commands can be prefixed by a number N to make them repeat N times.
