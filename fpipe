@@ -1,5 +1,6 @@
 #!/bin/sh
 
+tmp=""
 # "The shell standard does not specify whether a trap on [EXIT] 0 is
 #  executed when an untrapped signal is received."
 # https://stackoverflow.com/a/12961904/2647751
