@@ -85,7 +85,10 @@ static int printrow(uintmax_t columns, FILE* input) {
     return '\n';
 }
 
-static void erase(void) {
+static void erase(int reset) {
+    // can't always reset because we might be in the middle of a colored line
+    if (TERM && reset)
+        fputs("\r\033[0m", stdout);  // reset colors after a jump
     if (TERM)
         fputs("\r          \r", stdout);
 }
@@ -104,7 +107,7 @@ static void printstatus(int ch) {
 static int printrows(uintmax_t rows, uintmax_t cols, FILE* input, int fill) {
     int ch = 0;
     uintmax_t i = 0;
-    erase();
+    erase(fill);
     for (; i < rows || rows == UINTMAX_MAX; i++)
         if ((ch = printrow(cols, input)) == EOF)
             break;
@@ -161,7 +164,7 @@ static void gotopercent(uintmax_t percent, uintmax_t rows, uintmax_t columns,
 }
 
 static void quit(int signal) {
-    erase();
+    erase(1);
     if (TTY != NULL && TERM != NULL)
         tcsetattr(fileno(TTY), TCSANOW, TERM);
     exit(signal == 0 ? 0 : 1);
